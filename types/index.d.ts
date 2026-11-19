@@ -1,37 +1,37 @@
-export type BandZeile = {
+export type BandRow = {
   name: string
-  zustand: 'arbeitet' | 'wartet' | 'fertig'
-  zeichen: string
-  /** Erledigte Schritte in Prozent; null, solange die Session keine Liste hat. */
-  prozent: number | null
-  /** Skill der Session: `[name]` geladen, `[name?]` zugewiesen, aber noch nicht geladen. */
+  state: 'working' | 'waiting' | 'done'
+  icon: string
+  /** Completed steps in percent; null while the session has no task list. */
+  percent: number | null
+  /** Skill of the session: `[name]` loaded, `[name?]` assigned but not loaded yet. */
   skill?: string
-  /** Steht ungekürzt vor dem Text, zum Beispiel wie lange eine Session schon still ist. */
-  vorsatz?: string
+  /** Shown in full before the text, for example how long a session has been quiet. */
+  prefix?: string
   text: string
 }
 
-export type BandKonflikt = {
-  datei: string
+export type BandConflict = {
+  file: string
   sessions: string[]
 }
 
-export type BandStand = {
-  /** Was der Dirigent selbst gerade tut (aktueller Schritt seiner Liste), falls bekannt. */
-  eigenerSchritt: string
-  zeilen: BandZeile[]
-  /** Name des übergeordneten Projekts; fehlt, solange der Master nicht benannt ist. */
-  projekt?: string
-  /** Anzahl offener Punkte aus `~/.claude/dirigent/offen/`. */
-  offen?: number
-  /** 5-Stunden-Limit in Prozent; fehlt, wenn die Abfrage scheitert. */
+export type BandState = {
+  /** What Maestro itself is doing right now (current step of its own list), if known. */
+  ownStep: string
+  rows: BandRow[]
+  /** Name of the overall project; missing until the master is named. */
+  project?: string
+  /** Number of open items from `~/.claude/maestro/open/`. */
+  open?: number
+  /** 5-hour limit in percent; missing when the query fails. */
   limit?: number
-  /** Dateien, die mehrere noch nicht geprüfte Sessions dieses Masters geändert haben. */
-  konflikte?: BandKonflikt[]
+  /** Files changed by more than one unchecked session of this master. */
+  conflicts?: BandConflict[]
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    dirigent: { band: BandStand | null }
+    maestro: { band: BandState | null }
   }
 }

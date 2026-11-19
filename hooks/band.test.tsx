@@ -2,23 +2,23 @@ import { expect, test } from 'claude-code/testing'
 
 const ID = 'aaaaaaaa-0000-4000-8000-000000000000'
 const BAND = {
-  plugin: 'dirigent',
+  plugin: 'maestro',
   component: 'AbovePrompt',
   surface: 'desktop',
   requestId: 'band',
   props: { hasSurvey: false, isWorking: true, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
-const JETZT = 1_800_000_000_000
+const NOW = 1_800_000_000_000
 
-// `skills` füllt die Ordner des Skill-Protokolls (`nutzung`, `hinweise`); alles andere liest aus `dateien`.
-type SkillDateien = { nutzung: Record<string, object>; hinweise: Record<string, object> }
-function welt(on: any, dateien: Record<string, object>, geschrieben: Record<string, string> = {}, istMaster: boolean | null = true, skills?: SkillDateien, projekt?: string, sets?: Record<string, any>) {
-  const ordner = (pfad: string) => (pfad.includes('/skills/nutzung') ? skills?.nutzung : pfad.includes('/skills/hinweise') ? skills?.hinweise : undefined) ?? dateien
-  const store: Record<string, unknown> = istMaster === null
+// `skills` fills the folders of the skill log (`usage`, `notes`); everything else reads from `files`.
+type SkillFiles = { usage: Record<string, object>; notes: Record<string, object> }
+function world(on: any, files: Record<string, object>, written: Record<string, string> = {}, isMaster: boolean | null = true, skills?: SkillFiles, project?: string, sets?: Record<string, any>) {
+  const folder = (path: string) => (path.includes('/skills/usage') ? skills?.usage : path.includes('/skills/notes') ? skills?.notes : undefined) ?? files
+  const store: Record<string, unknown> = isMaster === null
     ? {}
-    : istMaster
-    ? { 'master:aaaaaaaa': { kennung: 'aaaaaaaa', sessionId: ID, seit: 'x', ...(projekt ? { projekt } : {}) } }
-    : { 'master:bbbbbbbb': { kennung: 'bbbbbbbb', sessionId: 'andere', seit: 'x' }, [`rolle:${ID}`]: { name: 'bau', kennung: 'bbbbbbbb' } }
+    : isMaster
+    ? { 'master:aaaaaaaa': { code: 'aaaaaaaa', sessionId: ID, since: 'x', ...(project ? { project } : {}) } }
+    : { 'master:bbbbbbbb': { code: 'bbbbbbbb', sessionId: 'other', since: 'x' }, [`role:${ID}`]: { name: 'build', code: 'bbbbbbbb' } }
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
   on('tool.register', () => ({ value: {} }))
   on('session.id', () => ({ value: ID }))
@@ -30,56 +30,56 @@ function welt(on: any, dateien: Record<string, object>, geschrieben: Record<stri
   })
   on('store.delete', () => ({ value: undefined }))
   on('env.get', () => ({ value: '/h' }))
-  on('clock.now', () => ({ value: JETZT }))
+  on('clock.now', () => ({ value: NOW }))
   on('fs.exists', () => ({ value: true }))
-  on('fs.list', (_: any, e: any) => ({ value: Object.keys(ordner(e.path)).map(name => ({ name, mtimeMs: JETZT - 1000 })) }))
-  on('fs.read', (_: any, e: any) => ({ value: JSON.stringify(ordner(e.path)[e.path.split('/').pop()]) }))
+  on('fs.list', (_: any, e: any) => ({ value: Object.keys(folder(e.path)).map(name => ({ name, mtimeMs: NOW - 1000 })) }))
+  on('fs.read', (_: any, e: any) => ({ value: JSON.stringify(folder(e.path)[e.path.split('/').pop()]) }))
   on('fs.write', (_: any, e: any) => {
-    geschrieben[e.path] = e.text
+    written[e.path] = e.text
     return { value: undefined }
   })
   on('ui.status', () => ({ value: undefined }))
   on('clock.every', () => ({ value: { cancel: () => {} } }))
 }
 
-const stand = (name: string, zustand: string, schritte: object[] = [], notiz = '', zuletzt = JETZT, istMaster = false) => ({
-  kennung: 'aaaaaaaa', name, istMaster, zustand, schritte, notiz, zuletzt,
+const status = (name: string, state: string, steps: object[] = [], note = '', last = NOW, isMaster = false) => ({
+  code: 'aaaaaaaa', name, isMaster, state, steps, note, last,
 })
 
-test('das Band zeigt Dirigent und Arbeits-Sessions, Wartende zuerst', async ($, on) => {
-  welt(on, {
-    [`aaaaaaaa-${ID}.json`]: stand('Dirigent', 'arbeitet', [{ text: 'Lage prüfen', status: 'in_progress' }], '', JETZT, true),
-    'aaaaaaaa-1.json': stand('bau', 'arbeitet', [{ text: 'Alt', status: 'completed' }, { text: 'Band bauen', status: 'in_progress' }]),
-    'aaaaaaaa-2.json': stand('frage', 'wartet', [], 'Welche Farbe?'),
-    'aaaaaaaa-3.json': stand('weg', 'beendet'),
-    'bbbbbbbb-5.json': { ...stand('fremd', 'arbeitet'), kennung: 'bbbbbbbb' },
+test('the band shows Maestro and worker sessions, waiting ones first', async ($, on) => {
+  world(on, {
+    [`aaaaaaaa-${ID}.json`]: status('Maestro', 'working', [{ text: 'Check status', status: 'in_progress' }], '', NOW, true),
+    'aaaaaaaa-1.json': status('build', 'working', [{ text: 'Old', status: 'completed' }, { text: 'Build band', status: 'in_progress' }]),
+    'aaaaaaaa-2.json': status('question', 'waiting', [], 'Which color?'),
+    'aaaaaaaa-3.json': status('gone', 'ended'),
+    'bbbbbbbb-5.json': { ...status('foreign', 'working'), code: 'bbbbbbbb' },
   })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount(BAND)
   const text = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text).join('\n')
-  expect(text).toContain('Lage prüfen')
-  expect(text).toContain('❓ frage · Welche Farbe?')
-  expect(text).toContain('🔄 bau ▰▰▰▱▱ 50 % · Band bauen')
+  expect(text).toContain('Check status')
+  expect(text).toContain('❓ question · Which color?')
+  expect(text).toContain('🔄 build ▰▰▰▱▱ 50 % · Build band')
   expect(text).toContain('🔄1')
   expect(text).toContain('❓1')
-  expect(text.indexOf('frage')).toBeLessThan(text.indexOf('bau'))
-  expect(text).not.toContain('weg')
-  expect(text).not.toContain('fremd')
+  expect(text.indexOf('question')).toBeLessThan(text.indexOf('build'))
+  expect(text).not.toContain('gone')
+  expect(text).not.toContain('foreign')
   await ui.unmount()
 })
 
-test('ohne Arbeits-Sessions steht das Band trotzdem da', async ($, on) => {
-  welt(on, {})
+test('the band shows up even without worker sessions', async ($, on) => {
+  world(on, {})
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false } })
   const text = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text).join('\n')
-  expect(text).toContain('bereit')
-  expect(text).toContain('keine Arbeits-Session')
+  expect(text).toContain('ready')
+  expect(text).toContain('no worker session')
   await ui.unmount()
 })
 
-test('in einer Arbeits-Session gibt es kein Band', async ($, on) => {
-  welt(on, {}, {}, false)
+test('a worker session has no band', async ($, on) => {
+  world(on, {}, {}, false)
   on('ui.render', ($e: any, e: any) => {
     const { Text } = $e.ui.resolve(e)
     return <Text>engine</Text>
@@ -90,254 +90,254 @@ test('in einer Arbeits-Session gibt es kein Band', async ($, on) => {
   await ui.unmount()
 })
 
-test('ein Auftrag mit breitem ＠ in der Marke macht die Session zur Arbeits-Session', async ($, on) => {
-  const gesetzt: Record<string, unknown> = {}
-  const store: Record<string, unknown> = { 'master:bbbbbbbb': { kennung: 'bbbbbbbb', sessionId: 'andere', seit: 'x' } }
+test('a task with a full-width ＠ in the marker makes the session a worker session', async ($, on) => {
+  const set: Record<string, unknown> = {}
+  const store: Record<string, unknown> = { 'master:bbbbbbbb': { code: 'bbbbbbbb', sessionId: 'other', since: 'x' } }
   on('session.id', () => ({ value: ID }))
   on('store.keys', () => ({ value: Object.keys(store) }))
   on('store.get', (_: any, e: any) => ({ value: store[e.key] }))
   on('store.set', (_: any, e: any) => {
-    gesetzt[e.key] = e.value
+    set[e.key] = e.value
     return { value: undefined }
   })
   on('ui.status', () => ({ value: undefined }))
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
-  await $.prompt.submit({ text: 'Task: ⟦dirigent:gesang＠bbbbbbbb⟧ Auftrag' } as any)
-  expect(gesetzt[`rolle:${ID}`]).toEqual({ name: 'gesang', kennung: 'bbbbbbbb' })
+  await $.prompt.submit({ text: 'Task: ⟦maestro:vocals＠bbbbbbbb⟧ Task' } as any)
+  expect(set[`role:${ID}`]).toEqual({ name: 'vocals', code: 'bbbbbbbb' })
 })
 
-test('eine Arbeits-Session meldet ihre Liste und ihren Abschluss', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  welt(on, {}, geschrieben, false)
+test('a worker session reports its list and its completion', async ($, on) => {
+  const written: Record<string, string> = {}
+  world(on, {}, written, false)
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Eins', status: 'in_progress' }, { content: 'Zwei', status: 'pending' }] } as any)
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'One', status: 'in_progress' }, { content: 'Two', status: 'pending' }] } as any)
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', advance: true } as any)
-  const pfad = `/h/.claude/dirigent/stand/bbbbbbbb-${ID}.json`
-  let datei = JSON.parse(geschrieben[pfad])
-  expect(datei.name).toBe('bau')
-  expect(datei.schritte.map((s: any) => s.status)).toEqual(['completed', 'in_progress'])
-  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Alles fertig gebaut. Mehr Text.' } as any)
-  datei = JSON.parse(geschrieben[pfad])
-  expect(datei.notiz).toBe('Alles fertig gebaut.')
-  expect(datei.schritte.every((s: any) => s.status === 'completed')).toBe(true)
+  const path = `/h/.claude/maestro/status/bbbbbbbb-${ID}.json`
+  let file = JSON.parse(written[path])
+  expect(file.name).toBe('build')
+  expect(file.steps.map((s: any) => s.status)).toEqual(['completed', 'in_progress'])
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Everything built. More text.' } as any)
+  file = JSON.parse(written[path])
+  expect(file.note).toBe('Everything built.')
+  expect(file.steps.every((s: any) => s.status === 'completed')).toBe(true)
 })
 
-const zeilenVon = async ($: any, on: any, dateien: Record<string, object>, breite: number) => {
-  welt(on, dateien)
+const linesOf = async ($: any, on: any, files: Record<string, object>, width: number) => {
+  world(on, files)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: breite } })
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: width } })
   const text = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text).join('\n')
   await ui.unmount()
   return text
 }
 
-test('ein langer Bericht wird knapp, aber bleibt lesbar', async ($, on) => {
-  const text = await zeilenVon($, on, {
-    'aaaaaaaa-1.json': stand('gitarre', 'fertig', [{ text: 'A', status: 'completed' }], 'Gitarre fertig: 13 Stellen in der DI repariert, gemessen 0 abweichende Samples.'),
+test('a long report gets short but stays readable', async ($, on) => {
+  const text = await linesOf($, on, {
+    'aaaaaaaa-1.json': status('guitar', 'done', [{ text: 'A', status: 'completed' }], 'Guitar done: 13 spots in the DI repaired, measured 0 deviating samples.'),
   }, 80)
-  expect(text).toContain('☑️ gitarre ▰▰▰▰▰ 100 % · 13 Stellen in der DI repariert')
-  expect(text).not.toContain('gemessen')
+  expect(text).toContain('☑️ guitar ▰▰▰▰▰ 100 % · 13 spots in the DI repaired')
+  expect(text).not.toContain('measured')
 })
 
-test('im schmalen Fenster fällt der Balken weg, die Prozentzahl bleibt', async ($, on) => {
-  const text = await zeilenVon($, on, {
-    'aaaaaaaa-1.json': stand('mix', 'arbeitet', [{ text: 'Eins', status: 'completed' }, { text: 'Ketten je Spur in mix.py bauen und fitten', status: 'in_progress' }]),
+test('in a narrow window the bar drops out, the percentage stays', async ($, on) => {
+  const text = await linesOf($, on, {
+    'aaaaaaaa-1.json': status('mix', 'working', [{ text: 'One', status: 'completed' }, { text: 'Build and fit chains per track in mix.py', status: 'in_progress' }]),
   }, 40)
   expect(text).toContain('🔄 mix 50 % · ')
   expect(text).not.toContain('▰')
   expect(text).toContain('…')
 })
 
-test('Pause und Stille sind von Fertig und Arbeiten zu unterscheiden', async ($, on) => {
-  const text = await zeilenVon($, on, {
-    'aaaaaaaa-1.json': stand('halb', 'fertig', [{ text: 'A', status: 'completed' }, { text: 'B', status: 'pending' }]),
-    'aaaaaaaa-2.json': stand('still', 'arbeitet', [{ text: 'Messen', status: 'in_progress' }], '', JETZT - 25 * 60_000),
+test('paused and quiet are distinguishable from done and working', async ($, on) => {
+  const text = await linesOf($, on, {
+    'aaaaaaaa-1.json': status('half', 'done', [{ text: 'A', status: 'completed' }, { text: 'B', status: 'pending' }]),
+    'aaaaaaaa-2.json': status('quiet', 'working', [{ text: 'Measure', status: 'in_progress' }], '', NOW - 25 * 60_000),
   }, 80)
-  expect(text).toContain('⏸️ halb')
-  expect(text).toContain('⚠️ still ▱▱▱▱▱ 0 % · 25 Min. still · Messen')
+  expect(text).toContain('⏸️ half')
+  expect(text).toContain('⚠️ quiet ▱▱▱▱▱ 0 % · 25 min quiet · Measure')
 })
 
-// --- Skill-Verwaltung ---
+// --- Skill management ---
 
-const TAGE = 24 * 60 * 60 * 1000
-const nutzungVon = (id: string, auftrag: string, geladen: string[], zuletzt: number, extra: object = {}) => ({
-  sessionId: id, kennung: 'aaaaaaaa', name: 'bau', auftrag, zugewiesen: [], ergebnis: 'fertig', zuletzt,
-  geladen: geladen.map(skill => ({ skill, zeit: zuletzt })), ...extra,
+const DAYS = 24 * 60 * 60 * 1000
+const usageOf = (id: string, task: string, loaded: string[], last: number, extra: object = {}) => ({
+  sessionId: id, code: 'aaaaaaaa', name: 'build', task, assigned: [], result: 'done', last,
+  loaded: loaded.map(skill => ({ skill, time: last })), ...extra,
 })
 
-function skillWelt(on: any, nutzung: Record<string, object>, hinweise: Record<string, object>, geschrieben: Record<string, string>, istMaster: boolean | null = false) {
-  welt(on, {}, geschrieben, istMaster, { nutzung, hinweise })
+function skillWorld(on: any, usage: Record<string, object>, notes: Record<string, object>, written: Record<string, string>, isMaster: boolean | null = false) {
+  world(on, {}, written, isMaster, { usage, notes })
   on('command.list', () => ({
     value: [
-      { name: 'help', description: 'Hilfe', source: 'builtin' },
-      { name: 'commit', description: 'Commit schreiben', source: 'user' },
-      { name: 'plugin-authoring', description: 'Mods bauen', source: 'plugin' },
+      { name: 'help', description: 'Help', source: 'builtin' },
+      { name: 'commit', description: 'Write commit', source: 'user' },
+      { name: 'plugin-authoring', description: 'Build mods', source: 'plugin' },
       { name: 'mcp__x__prompt', description: 'MCP', source: 'mcp' },
-      { name: 'alt', description: 'Nie genutzt', source: 'user' },
+      { name: 'old', description: 'Never used', source: 'user' },
     ],
   }))
   on('tool.call', () => ({ result: {} }))
 }
 
-const lage = async ($: any) => JSON.parse(((await $.tool.call({ tool: 'mcp__dirigent__skills_lage' } as any)) as any).result)
+const skillsStatus = async ($: any) => JSON.parse(((await $.tool.call({ tool: 'mcp__maestro__skills_status' } as any)) as any).result)
 
-test('skills_lage zählt Nutzung, nennt Aufträge ohne Skill und Hinweise, räumt aber erst nach 30 Tagen auf', async ($, on) => {
-  skillWelt(on, {
-    'a.json': nutzungVon('a', 'Mod bauen', ['commit', 'plugin-authoring'], JETZT - 5 * TAGE),
-    'b.json': nutzungVon('b', 'Texte kürzen', [], JETZT - 2 * TAGE),
-    'c.json': nutzungVon('c', 'Texte glätten', [], JETZT - 1 * TAGE, { zugewiesen: ['commit'] }),
-  }, { 'h.json': { skill: 'commit', art: 'korrektur', text: 'Stil', zeit: JETZT - TAGE } }, {})
+test('skills_status counts usage, names tasks without a skill and notes, but only cleans up after 30 days', async ($, on) => {
+  skillWorld(on, {
+    'a.json': usageOf('a', 'Build mod', ['commit', 'plugin-authoring'], NOW - 5 * DAYS),
+    'b.json': usageOf('b', 'Shorten texts', [], NOW - 2 * DAYS),
+    'c.json': usageOf('c', 'Polish texts', [], NOW - 1 * DAYS, { assigned: ['commit'] }),
+  }, { 'h.json': { skill: 'commit', kind: 'correction', text: 'Style', time: NOW - DAYS } }, {})
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const l = await lage($)
-  const commit = l.skills.find((s: any) => s.name === 'commit')
-  expect(l.skills.map((s: any) => s.name).sort()).toEqual(['alt', 'commit', 'plugin-authoring'])
-  expect(commit).toMatchObject({ geladen: 1, fertig: 1, letzteNutzungVorTagen: 5, zugewiesenNichtGeladen: 1, offeneHinweise: 1 })
-  expect(l.auftraegeOhneSkill.map((a: any) => a.auftrag).sort()).toEqual(['Texte glätten', 'Texte kürzen'])
-  expect(l.hinweise).toHaveLength(1)
-  expect(l.aufraeumKandidaten).toEqual([])
+  const s = await skillsStatus($)
+  const commit = s.skills.find((k: any) => k.name === 'commit')
+  expect(s.skills.map((k: any) => k.name).sort()).toEqual(['commit', 'old', 'plugin-authoring'])
+  expect(commit).toMatchObject({ loaded: 1, done: 1, lastUsedDaysAgo: 5, assignedNotLoaded: 1, openNotes: 1 })
+  expect(s.tasksWithoutSkill.map((a: any) => a.task).sort()).toEqual(['Polish texts', 'Shorten texts'])
+  expect(s.notes).toHaveLength(1)
+  expect(s.cleanupCandidates).toEqual([])
 })
 
-test('nach 30 Tagen Protokoll nennt skills_lage ungenutzte Skills zum Aufräumen', async ($, on) => {
-  skillWelt(on, { 'a.json': nutzungVon('a', 'Mod bauen', ['commit', 'plugin-authoring'], JETZT - 40 * TAGE) }, {}, {})
+test('after 30 days of log skills_status names unused skills for cleanup', async ($, on) => {
+  skillWorld(on, { 'a.json': usageOf('a', 'Build mod', ['commit', 'plugin-authoring'], NOW - 40 * DAYS) }, {}, {})
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const l = await lage($)
-  expect(l.protokollSeitTagen).toBe(40)
-  expect(l.aufraeumKandidaten.sort()).toEqual(['alt', 'commit', 'plugin-authoring'])
+  const s = await skillsStatus($)
+  expect(s.logDays).toBe(40)
+  expect(s.cleanupCandidates.sort()).toEqual(['commit', 'old', 'plugin-authoring'])
 })
 
-test('skill.prompt schreibt Protokoll und Stand einer Arbeits-Session', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben)
+test('skill.prompt writes the log and status of a worker session', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written)
   on('skill.prompt', () => ({ text: 'Skilltext' }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const antwort = await $.skill.prompt({ skill: 'commit', text: '' })
-  expect(antwort.text).toBe('Skilltext')
+  const answer = await $.skill.prompt({ skill: 'commit', text: '' })
+  expect(answer.text).toBe('Skilltext')
   await $.skill.prompt({ skill: 'commit', text: '' })
-  const nutzung = JSON.parse(geschrieben[`/h/.claude/dirigent/skills/nutzung/${ID}.json`])
-  expect(nutzung.geladen.map((g: any) => g.skill)).toEqual(['commit'])
-  expect(nutzung).toMatchObject({ sessionId: ID, kennung: 'bbbbbbbb', name: 'bau', ergebnis: 'fertig' })
-  const stand = JSON.parse(geschrieben[`/h/.claude/dirigent/stand/bbbbbbbb-${ID}.json`])
-  expect(stand.geladen).toEqual(['commit'])
+  const usage = JSON.parse(written[`/h/.claude/maestro/skills/usage/${ID}.json`])
+  expect(usage.loaded.map((g: any) => g.skill)).toEqual(['commit'])
+  expect(usage).toMatchObject({ sessionId: ID, code: 'bbbbbbbb', name: 'build', result: 'done' })
+  const statusFile = JSON.parse(written[`/h/.claude/maestro/status/bbbbbbbb-${ID}.json`])
+  expect(statusFile.loaded).toEqual(['commit'])
 })
 
-test('eine Session ohne Dirigent und ohne Skill schreibt kein Protokoll', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben, null)
+test('a session without Maestro and without a skill writes no log', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written, null)
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
-  await $.prompt.submit({ text: 'hallo' } as any)
-  expect(Object.keys(geschrieben).filter(p => p.includes('/skills/'))).toEqual([])
+  await $.prompt.submit({ text: 'hello' } as any)
+  expect(Object.keys(written).filter(p => p.includes('/skills/'))).toEqual([])
 })
 
-test('der Auftrag legt die zugewiesenen Skills fest, "keiner" weist nichts zu', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben)
+test('the task sets the assigned skills, "none" assigns nothing', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written)
   on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
-  const stand = () => JSON.parse(geschrieben[`/h/.claude/dirigent/stand/bbbbbbbb-${ID}.json`])
-  const nutzung = () => JSON.parse(geschrieben[`/h/.claude/dirigent/skills/nutzung/${ID}.json`])
-  await $.prompt.submit({ text: '⟦dirigent:bau＠bbbbbbbb⟧ Auftrag\nAufgabe: Mod bauen\nSkills: plugin-authoring, commit\nOrt: x' } as any)
-  expect(stand().zugewiesen).toEqual(['plugin-authoring', 'commit'])
-  expect(nutzung()).toMatchObject({ auftrag: 'Mod bauen', zugewiesen: ['plugin-authoring', 'commit'] })
+  const statusFile = () => JSON.parse(written[`/h/.claude/maestro/status/bbbbbbbb-${ID}.json`])
+  const usage = () => JSON.parse(written[`/h/.claude/maestro/skills/usage/${ID}.json`])
+  await $.prompt.submit({ text: '⟦maestro:build＠bbbbbbbb⟧ Task\nTask: Build mod\nSkills: plugin-authoring, commit\nWhere: x' } as any)
+  expect(statusFile().assigned).toEqual(['plugin-authoring', 'commit'])
+  expect(usage()).toMatchObject({ task: 'Build mod', assigned: ['plugin-authoring', 'commit'] })
 
-  await $.prompt.submit({ text: '⟦dirigent:bau＠bbbbbbbb⟧ Auftrag\nAufgabe: Texte kürzen\nSkills: keiner\nOrt: x' } as any)
-  expect(stand().zugewiesen).toEqual([])
-  await $.prompt.submit({ text: '⟦dirigent:bau＠bbbbbbbb⟧ Folge\nAufgabe: Weiter\nSkills: commit' } as any)
-  await $.prompt.submit({ text: '⟦dirigent:bau＠bbbbbbbb⟧ Noch eine Frage ohne Skill-Zeile' } as any)
-  expect(stand().zugewiesen).toEqual(['commit'])
+  await $.prompt.submit({ text: '⟦maestro:build＠bbbbbbbb⟧ Task\nTask: Shorten texts\nSkills: none\nWhere: x' } as any)
+  expect(statusFile().assigned).toEqual([])
+  await $.prompt.submit({ text: '⟦maestro:build＠bbbbbbbb⟧ Follow-up\nTask: Continue\nSkills: commit' } as any)
+  await $.prompt.submit({ text: '⟦maestro:build＠bbbbbbbb⟧ Another question without a skills line' } as any)
+  expect(statusFile().assigned).toEqual(['commit'])
 })
 
-test('skill_hinweis schreibt eine Datei und lässt den Skill unberührt', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben, true)
+test('skill_note writes a file and leaves the skill untouched', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written, true)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__dirigent__skill_hinweis', skill: 'commit', art: 'korrektur', text: 'Betreff zu lang' } as any)
-  const pfade = Object.keys(geschrieben)
-  expect(pfade).toEqual([`/h/.claude/dirigent/skills/hinweise/${JETZT}-commit.json`])
-  expect(JSON.parse(geschrieben[pfade[0]])).toMatchObject({ skill: 'commit', art: 'korrektur', text: 'Betreff zu lang', zeit: JETZT })
+  await $.tool.call({ tool: 'mcp__maestro__skill_note', skill: 'commit', kind: 'correction', text: 'Subject too long' } as any)
+  const paths = Object.keys(written)
+  expect(paths).toEqual([`/h/.claude/maestro/skills/notes/${NOW}-commit.json`])
+  expect(JSON.parse(written[paths[0]])).toMatchObject({ skill: 'commit', kind: 'correction', text: 'Subject too long', time: NOW })
 })
 
-test('skill_hinweis ohne gültigen Skill-Namen schreibt nichts', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben, true)
+test('skill_note without a valid skill name writes nothing', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written, true)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__dirigent__skill_hinweis', skill: '../x', art: 'fehler', text: 'a' } as any)
-  await $.tool.call({ tool: 'mcp__dirigent__skill_hinweis', skill: 'commit', art: 'fehler', text: '  ' } as any)
-  expect(geschrieben).toEqual({})
+  await $.tool.call({ tool: 'mcp__maestro__skill_note', skill: '../x', kind: 'error', text: 'a' } as any)
+  await $.tool.call({ tool: 'mcp__maestro__skill_note', skill: 'commit', kind: 'error', text: '  ' } as any)
+  expect(written).toEqual({})
 })
 
-test('skills_ausblenden lehnt Sonderzeichen ab und ändert nichts', async ($, on) => {
-  const geschrieben: Record<string, string> = {}
-  skillWelt(on, {}, {}, geschrieben, true)
+test('skills_hide rejects special characters and changes nothing', async ($, on) => {
+  const written: Record<string, string> = {}
+  skillWorld(on, {}, {}, written, true)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const antwort = async (skills: string[]) => JSON.parse((await $.tool.call({ tool: 'mcp__dirigent__skills_ausblenden', skills } as any) as any).result)
-  const schlecht = await antwort(['x"; rm -rf ~ #', '$(boese)'])
-  expect(schlecht.befehl).toBeNull()
-  expect(schlecht.abgelehnt).toHaveLength(2)
-  const gemischt = await antwort(['alt', 'a b'])
-  expect(gemischt.befehl).toContain('"alt":"name-only"')
-  expect(gemischt.befehl).not.toContain('a b')
-  expect(gemischt.abgelehnt).toEqual(['a b'])
-  expect(Object.keys(geschrieben).filter(p => !p.includes('/dirigent/'))).toEqual([])
+  const answer = async (skills: string[]) => JSON.parse((await $.tool.call({ tool: 'mcp__maestro__skills_hide', skills } as any) as any).result)
+  const bad = await answer(['x"; rm -rf ~ #', '$(evil)'])
+  expect(bad.command).toBeNull()
+  expect(bad.rejected).toHaveLength(2)
+  const mixed = await answer(['old', 'a b'])
+  expect(mixed.command).toContain('"old":"name-only"')
+  expect(mixed.command).not.toContain('a b')
+  expect(mixed.rejected).toEqual(['a b'])
+  expect(Object.keys(written).filter(p => !p.includes('/maestro/'))).toEqual([])
 })
 
-test('das Band zeigt [name] für geladene und [name?] für nicht geladene Skills', async ($, on) => {
-  const text = await zeilenVon($, on, {
-    'aaaaaaaa-1.json': { ...stand('bau', 'arbeitet', [{ text: 'Eins', status: 'in_progress' }]), geladen: ['commit'], zugewiesen: ['commit'] },
-    'aaaaaaaa-2.json': { ...stand('text', 'arbeitet', [{ text: 'Zwei', status: 'in_progress' }]), zugewiesen: ['schreiben'] },
-    'aaaaaaaa-3.json': stand('roh', 'arbeitet', [{ text: 'Drei', status: 'in_progress' }]),
+test('the band shows [name] for loaded and [name?] for unloaded skills', async ($, on) => {
+  const text = await linesOf($, on, {
+    'aaaaaaaa-1.json': { ...status('build', 'working', [{ text: 'One', status: 'in_progress' }]), loaded: ['commit'], assigned: ['commit'] },
+    'aaaaaaaa-2.json': { ...status('text', 'working', [{ text: 'Two', status: 'in_progress' }]), assigned: ['writing'] },
+    'aaaaaaaa-3.json': status('raw', 'working', [{ text: 'Three', status: 'in_progress' }]),
   }, 80)
-  expect(text).toContain('bau [commit] ▱')
-  expect(text).toContain('text [schreiben?] ▱')
-  expect(text).toContain('roh ▱')
-  expect(text).not.toMatch(/roh \[/)
+  expect(text).toContain('build [commit] ▱')
+  expect(text).toContain('text [writing?] ▱')
+  expect(text).toContain('raw ▱')
+  expect(text).not.toMatch(/raw \[/)
 })
 
-// --- Master benennen ---
+// --- Naming the master ---
 
-test('master_benennen kürzt den Namen, entfernt ein doppeltes 🎼 und setzt den Titel', async ($, on) => {
-  const gesetzt: Record<string, any> = {}
-  const aufrufe: any[] = []
-  welt(on, {}, {}, true, undefined, undefined, gesetzt)
+test('master_name shortens the name, removes a duplicate 🎼 and sets the title', async ($, on) => {
+  const set: Record<string, any> = {}
+  const calls: any[] = []
+  world(on, {}, {}, true, undefined, undefined, set)
   on('mcp.call', (_: any, e: any) => {
-    aufrufe.push(e)
+    calls.push(e)
     return { value: { content: [], isError: false } }
   })
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const lang = '🎼 ' + 'x'.repeat(60)
-  const antwort = ((await $.tool.call({ tool: 'mcp__dirigent__master_benennen', projekt: lang } as any)) as any).result
-  const projekt = gesetzt['master:aaaaaaaa'].projekt as string
-  expect(projekt).toBe('x'.repeat(39) + '…')
-  expect(projekt.length).toBe(40)
-  expect(projekt).not.toContain('🎼')
-  expect(antwort).toContain(`🎼 ${projekt}`)
-  const titel = aufrufe.find(a => a.tool === 'set_session_title')
-  expect(titel.args).toEqual({ session_id: 'self', title: `🎼 ${projekt}` })
+  const long = '🎼 ' + 'x'.repeat(60)
+  const answer = ((await $.tool.call({ tool: 'mcp__maestro__master_name', project: long } as any)) as any).result
+  const project = set['master:aaaaaaaa'].project as string
+  expect(project).toBe('x'.repeat(39) + '…')
+  expect(project.length).toBe(40)
+  expect(project).not.toContain('🎼')
+  expect(answer).toContain(`🎼 ${project}`)
+  const title = calls.find(a => a.tool === 'set_session_title')
+  expect(title.args).toEqual({ session_id: 'self', title: `🎼 ${project}` })
 })
 
-test('kann die Mod den Titel nicht setzen, nennt das Werkzeug den fertigen Titel', async ($, on) => {
-  welt(on, {})
+test('if the mod cannot set the title, the tool names the finished title', async ($, on) => {
+  world(on, {})
   on('mcp.call', () => {
-    throw new Error('nicht verbunden')
+    throw new Error('not connected')
   })
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const antwort = ((await $.tool.call({ tool: 'mcp__dirigent__master_benennen', projekt: 'Musik' } as any)) as any).result
-  expect(antwort).toContain('"🎼 Musik"')
-  expect(antwort).toContain('selbst')
+  const answer = ((await $.tool.call({ tool: 'mcp__maestro__master_name', project: 'Music' } as any)) as any).result
+  expect(answer).toContain('"🎼 Music"')
+  expect(answer).toContain('yourself')
 })
 
-test('das Band zeigt den Projektnamen, ein Master ohne Namen zeigt Dirigent', async ($, on) => {
-  welt(on, {}, {}, true, undefined, 'Musik')
+test('the band shows the project name, a master without a name shows Maestro', async ($, on) => {
+  world(on, {}, {}, true, undefined, 'Music')
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount(BAND)
   const text = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text).join('\n')
-  expect(text).toContain('🎼 Musik')
-  expect(text).not.toContain('🎼 Dirigent')
+  expect(text).toContain('🎼 Music')
+  expect(text).not.toContain('🎼 Maestro')
   await ui.unmount()
 })
 
-test('ein Master ohne Namen zeigt 🎼 Dirigent', async ($, on) => {
-  const text = await zeilenVon($, on, {}, 80)
-  expect(text).toContain('🎼 Dirigent')
+test('a master without a name shows 🎼 Maestro', async ($, on) => {
+  const text = await linesOf($, on, {}, 80)
+  expect(text).toContain('🎼 Maestro')
 })

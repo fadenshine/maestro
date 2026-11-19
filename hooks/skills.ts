@@ -1,195 +1,195 @@
 import type { EngineInterface } from 'claude-code'
 
-// Skill-Verwaltung des Dirigenten: Nutzung mitschreiben und auswerten. Alles bleibt in lokalen Dateien.
-// Jede Session schreibt nur ihre eigene Datei, damit sich gleichzeitige Prozesse nicht überschreiben.
-const WURZEL = '/.claude/dirigent/skills'
-const TAG = 24 * 60 * 60 * 1000
-const FRIST = 30 * TAG
+// Skill management of Maestro: record and evaluate usage. Everything stays in local files.
+// Each session writes only its own file, so concurrent processes do not overwrite each other.
+const ROOT = '/.claude/maestro/skills'
+const DAY = 24 * 60 * 60 * 1000
+const PERIOD = 30 * DAY
 
-export type Nutzung = {
+export type Usage = {
   sessionId: string
-  kennung: string | null
+  code: string | null
   name: string | null
-  auftrag: string
-  zugewiesen: string[]
-  geladen: { skill: string; zeit: number }[]
-  ergebnis: 'laeuft' | 'fertig' | 'pausiert'
-  zuletzt: number
+  task: string
+  assigned: string[]
+  loaded: { skill: string; time: number }[]
+  result: 'running' | 'done' | 'paused'
+  last: number
 }
 
-export type Hinweis = { skill: string; art: string; text: string; zeit: number }
+export type Note = { skill: string; kind: string; text: string; time: number }
 export type SkillInfo = { name: string; description: string }
-/** Eine eingebaute Skill-Änderung: ab `zeit` zählt alles als „nachher“; `sicherung` ist der Stand davor. */
-export type Aenderung = { skill: string; zeit: number; sicherung: string }
+/** A skill change that was put in place: from `time` on everything counts as "after"; `backup` is the state before. */
+export type Change = { skill: string; time: number; backup: string }
 
-// Unter so vielen Nutzungen je Seite ist eine Quote Zufall.
-const GENUG_NUTZUNGEN = 5
+// Below this many uses per side, a rate is chance.
+const ENOUGH_USES = 5
 
-// Liest aus einem Auftrag, was die Mod braucht: die Zeilen `Aufgabe:` und `Skills:`.
-// `zugewiesen` ist null, wenn die Nachricht keine Zeile `Skills:` hat (eine Folgenachricht ändert dann nichts).
-export function auftragLesen(text: string) {
-  const aufgabe = /^Aufgabe:\s*(.+)$/m.exec(text)?.[1]?.trim() ?? ''
-  const zeile = /^Skills:[ \t]*(.*)$/m.exec(text)?.[1]
-  const zugewiesen =
-    zeile === undefined
+// Reads what the mod needs from a task brief: the lines `Task:` and `Skills:`.
+// `assigned` is null when the message has no `Skills:` line (a follow-up message then changes nothing).
+export function readTask(text: string) {
+  const task = /^Task:\s*(.+)$/m.exec(text)?.[1]?.trim() ?? ''
+  const line = /^Skills:[ \t]*(.*)$/m.exec(text)?.[1]
+  const assigned =
+    line === undefined
       ? null
-      : zeile
+      : line
           .split(',')
           .map(s => s.trim())
-          .filter(s => s && !/^(keiner|keine|-)$/i.test(s))
-  return { auftrag: aufgabe.slice(0, 160), zugewiesen }
+          .filter(s => s && !/^(none|-)$/i.test(s))
+  return { task: task.slice(0, 160), assigned }
 }
 
-function seite(nutzungen: Nutzung[], hinweise: Hinweis[], skill: string, von: number, bis: number) {
-  const treffer = nutzungen.flatMap(n =>
-    n.geladen.filter(g => g.skill === skill && g.zeit >= von && g.zeit < bis).map(() => n.ergebnis),
+function side(usages: Usage[], notes: Note[], skill: string, from: number, to: number) {
+  const hits = usages.flatMap(n =>
+    n.loaded.filter(g => g.skill === skill && g.time >= from && g.time < to).map(() => n.result),
   )
-  // Was noch läuft, hat kein Ergebnis und zählt nicht gegen den Skill.
-  const beendet = treffer.filter(e => e !== 'laeuft')
+  // What is still running has no result and does not count against the skill.
+  const finished = hits.filter(e => e !== 'running')
   return {
-    nutzungen: beendet.length,
-    erfolgsquote: beendet.length ? Math.round((100 * beendet.filter(e => e === 'fertig').length) / beendet.length) : null,
-    hinweise: hinweise.filter(h => h.skill === skill && h.zeit >= von && h.zeit < bis).length,
+    uses: finished.length,
+    successRate: finished.length ? Math.round((100 * finished.filter(e => e === 'done').length) / finished.length) : null,
+    notes: notes.filter(h => h.skill === skill && h.time >= from && h.time < to).length,
   }
 }
 
-// Vergleicht je Änderung die Nutzung seit der vorigen Änderung mit der bis zur nächsten.
-export function wirkung(aenderungen: Aenderung[], nutzungen: Nutzung[], hinweise: Hinweis[]) {
-  const sortiert = [...aenderungen].sort((a, b) => a.zeit - b.zeit)
-  return sortiert.map(a => {
-    const gleicherSkill = sortiert.filter(x => x.skill === a.skill)
-    const nr = gleicherSkill.indexOf(a)
-    const von = nr > 0 ? gleicherSkill[nr - 1].zeit : 0
-    const bis = gleicherSkill[nr + 1]?.zeit ?? Number.MAX_SAFE_INTEGER
-    const vorher = seite(nutzungen, hinweise, a.skill, von, a.zeit)
-    const nachher = seite(nutzungen, hinweise, a.skill, a.zeit, bis)
-    const genug = vorher.nutzungen >= GENUG_NUTZUNGEN && nachher.nutzungen >= GENUG_NUTZUNGEN
-    const quote = (nachher.erfolgsquote ?? 0) - (vorher.erfolgsquote ?? 0)
-    const hinweisRate = nachher.hinweise / Math.max(nachher.nutzungen, 1) - vorher.hinweise / Math.max(vorher.nutzungen, 1)
-    const trend = !genug ? null : quote <= -10 || hinweisRate >= 0.2 ? 'schlechter' : quote >= 10 ? 'besser' : 'gleich'
+// For each change, compares usage since the previous change with usage up to the next one.
+export function effect(changes: Change[], usages: Usage[], notes: Note[]) {
+  const sorted = [...changes].sort((a, b) => a.time - b.time)
+  return sorted.map(a => {
+    const sameSkill = sorted.filter(x => x.skill === a.skill)
+    const nr = sameSkill.indexOf(a)
+    const from = nr > 0 ? sameSkill[nr - 1].time : 0
+    const to = sameSkill[nr + 1]?.time ?? Number.MAX_SAFE_INTEGER
+    const before = side(usages, notes, a.skill, from, a.time)
+    const after = side(usages, notes, a.skill, a.time, to)
+    const enough = before.uses >= ENOUGH_USES && after.uses >= ENOUGH_USES
+    const rate = (after.successRate ?? 0) - (before.successRate ?? 0)
+    const noteRate = after.notes / Math.max(after.uses, 1) - before.notes / Math.max(before.uses, 1)
+    const trend = !enough ? null : rate <= -10 || noteRate >= 0.2 ? 'worse' : rate >= 10 ? 'better' : 'same'
     return {
       skill: a.skill,
-      datum: new Date(a.zeit).toISOString().slice(0, 10),
-      sicherung: a.sicherung,
-      vorher,
-      nachher,
+      date: new Date(a.time).toISOString().slice(0, 10),
+      backup: a.backup,
+      before,
+      after,
       trend,
-      ...(genug ? {} : { hinweis: `zu wenig Daten: je Seite braucht es ${GENUG_NUTZUNGEN} Nutzungen` }),
+      ...(enough ? {} : { note: `not enough data: each side needs ${ENOUGH_USES} uses` }),
     }
   })
 }
 
-export function auswerten(skills: SkillInfo[], nutzungen: Nutzung[], hinweise: Hinweis[], jetzt: number, aenderungen: Aenderung[] = []) {
-  const seit = nutzungen.reduce((frueh, n) => Math.min(frueh, n.geladen[0]?.zeit ?? n.zuletzt), jetzt)
-  const tabelle = skills.map(skill => {
-    const treffer = nutzungen.flatMap(n => n.geladen.filter(g => g.skill === skill.name).map(g => ({ ...g, ergebnis: n.ergebnis })))
-    const letzte = treffer.reduce((spaet, t) => Math.max(spaet, t.zeit), 0)
+export function evaluate(skills: SkillInfo[], usages: Usage[], notes: Note[], now: number, changes: Change[] = []) {
+  const since = usages.reduce((early, n) => Math.min(early, n.loaded[0]?.time ?? n.last), now)
+  const table = skills.map(skill => {
+    const hits = usages.flatMap(n => n.loaded.filter(g => g.skill === skill.name).map(g => ({ ...g, result: n.result })))
+    const latest = hits.reduce((late, t) => Math.max(late, t.time), 0)
     return {
       name: skill.name,
-      beschreibung: skill.description.slice(0, 160),
-      geladen: treffer.length,
-      fertig: treffer.filter(t => t.ergebnis === 'fertig').length,
-      letzteNutzungVorTagen: letzte ? Math.floor((jetzt - letzte) / TAG) : null,
-      zugewiesenNichtGeladen: nutzungen.filter(n => n.zugewiesen.includes(skill.name) && !n.geladen.some(g => g.skill === skill.name)).length,
-      offeneHinweise: hinweise.filter(h => h.skill === skill.name).length,
+      description: skill.description.slice(0, 160),
+      loaded: hits.length,
+      done: hits.filter(t => t.result === 'done').length,
+      lastUsedDaysAgo: latest ? Math.floor((now - latest) / DAY) : null,
+      assignedNotLoaded: usages.filter(n => n.assigned.includes(skill.name) && !n.loaded.some(g => g.skill === skill.name)).length,
+      openNotes: notes.filter(h => h.skill === skill.name).length,
     }
   })
   return {
-    protokollSeitTagen: Math.floor((jetzt - seit) / TAG),
-    skills: tabelle,
-    // Rohstoff für Lücken: Aufträge ohne geladenen Skill. Ob sie sich ähneln, beurteilt der Dirigent.
-    auftraegeOhneSkill: nutzungen
-      .filter(n => n.auftrag && n.geladen.length === 0 && jetzt - n.zuletzt < FRIST)
-      .map(n => ({ auftrag: n.auftrag, vorTagen: Math.floor((jetzt - n.zuletzt) / TAG) })),
-    hinweise: hinweise.map(h => ({ skill: h.skill, art: h.art, text: h.text, vorTagen: Math.floor((jetzt - h.zeit) / TAG) })),
-    aenderungen: wirkung(aenderungen, nutzungen, hinweise),
-    // Erst nach einem vollen Monat Protokoll aussagekräftig.
-    aufraeumKandidaten:
-      jetzt - seit < FRIST
+    logDays: Math.floor((now - since) / DAY),
+    skills: table,
+    // Raw material for gaps: tasks without a loaded skill. Whether they are alike is for Maestro to judge.
+    tasksWithoutSkill: usages
+      .filter(n => n.task && n.loaded.length === 0 && now - n.last < PERIOD)
+      .map(n => ({ task: n.task, daysAgo: Math.floor((now - n.last) / DAY) })),
+    notes: notes.map(h => ({ skill: h.skill, kind: h.kind, text: h.text, daysAgo: Math.floor((now - h.time) / DAY) })),
+    changes: effect(changes, usages, notes),
+    // Only meaningful after a full month of log.
+    cleanupCandidates:
+      now - since < PERIOD
         ? []
-        : tabelle.filter(t => t.letzteNutzungVorTagen === null || t.letzteNutzungVorTagen * TAG >= FRIST).map(t => t.name),
+        : table.filter(t => t.lastUsedDaysAgo === null || t.lastUsedDaysAgo * DAY >= PERIOD).map(t => t.name),
   }
 }
 
-async function jsonDateien($: EngineInterface, ordner: string) {
-  const liste: unknown[] = []
-  if (!(await $.fs.exists(ordner))) return liste
-  for (const datei of await $.fs.list(ordner)) {
-    if (!datei.name.endsWith('.json')) continue
+async function jsonFiles($: EngineInterface, folder: string) {
+  const list: unknown[] = []
+  if (!(await $.fs.exists(folder))) return list
+  for (const file of await $.fs.list(folder)) {
+    if (!file.name.endsWith('.json')) continue
     try {
-      liste.push(JSON.parse(await $.fs.read(`${ordner}/${datei.name}`)))
+      list.push(JSON.parse(await $.fs.read(`${folder}/${file.name}`)))
     } catch {
-      // Eine halb geschriebene Datei zählt erst beim nächsten Mal.
+      // A half-written file counts next time.
     }
   }
-  return liste
+  return list
 }
 
-export async function nutzungSchreiben($: EngineInterface, nutzung: Nutzung) {
+export async function writeUsage($: EngineInterface, usage: Usage) {
   try {
-    const heim = await $.env.get('HOME')
-    await $.fs.write(`${heim}${WURZEL}/nutzung/${nutzung.sessionId}.json`, JSON.stringify(nutzung))
+    const home = await $.env.get('HOME')
+    await $.fs.write(`${home}${ROOT}/usage/${usage.sessionId}.json`, JSON.stringify(usage))
   } catch {
-    // Das Protokoll darf die Arbeit nie aufhalten.
+    // The log must never hold up the work.
   }
 }
 
-export async function hinweisSchreiben($: EngineInterface, hinweis: Hinweis) {
-  const heim = await $.env.get('HOME')
-  const name = `${hinweis.zeit}-${hinweis.skill.replace(/[^\w.-]/g, '_')}.json`
-  await $.fs.write(`${heim}${WURZEL}/hinweise/${name}`, JSON.stringify(hinweis))
+export async function writeNote($: EngineInterface, note: Note) {
+  const home = await $.env.get('HOME')
+  const name = `${note.time}-${note.skill.replace(/[^\w.-]/g, '_')}.json`
+  await $.fs.write(`${home}${ROOT}/notes/${name}`, JSON.stringify(note))
 }
 
-export async function aenderungSchreiben($: EngineInterface, aenderung: Aenderung) {
-  const heim = await $.env.get('HOME')
-  const name = `${aenderung.zeit}-${aenderung.skill.replace(/[^\w.-]/g, '_')}.json`
-  await $.fs.write(`${heim}${WURZEL}/aenderungen/${name}`, JSON.stringify(aenderung))
+export async function writeChange($: EngineInterface, change: Change) {
+  const home = await $.env.get('HOME')
+  const name = `${change.time}-${change.skill.replace(/[^\w.-]/g, '_')}.json`
+  await $.fs.write(`${home}${ROOT}/changes/${name}`, JSON.stringify(change))
 }
 
-// Das eigene Protokoll einer Session, um es nach einem Neustart fortzusetzen statt zu überschreiben.
-export async function nutzungLesen($: EngineInterface, sessionId: string) {
-  const heim = await $.env.get('HOME')
-  const pfad = `${heim}${WURZEL}/nutzung/${sessionId}.json`
-  if (!(await $.fs.exists(pfad))) return undefined
-  return JSON.parse(await $.fs.read(pfad)) as Partial<Nutzung>
+// A session's own log, to continue it after a restart instead of overwriting it.
+export async function readUsage($: EngineInterface, sessionId: string) {
+  const home = await $.env.get('HOME')
+  const path = `${home}${ROOT}/usage/${sessionId}.json`
+  if (!(await $.fs.exists(path))) return undefined
+  return JSON.parse(await $.fs.read(path)) as Partial<Usage>
 }
 
-// Eine fortgesetzte Session bekommt eine neue Id. Ihr Protokoll zieht mit um; die alte Datei bleibt leer zurück,
-// sonst zählten ihre Nutzungen doppelt und ihr Auftrag als „ohne Skill“.
-export async function nutzungUmziehen($: EngineInterface, alteId: string, neueId: string) {
-  const alt = await nutzungLesen($, alteId)
-  if (!alt) return
-  const heim = await $.env.get('HOME')
-  if (!(await nutzungLesen($, neueId))) {
-    await $.fs.write(`${heim}${WURZEL}/nutzung/${neueId}.json`, JSON.stringify({ ...alt, sessionId: neueId }))
+// A resumed session gets a new id. Its log moves along; the old file stays behind empty,
+// otherwise its uses would count twice and its task as "without skill".
+export async function moveUsage($: EngineInterface, oldId: string, newId: string) {
+  const old = await readUsage($, oldId)
+  if (!old) return
+  const home = await $.env.get('HOME')
+  if (!(await readUsage($, newId))) {
+    await $.fs.write(`${home}${ROOT}/usage/${newId}.json`, JSON.stringify({ ...old, sessionId: newId }))
   }
-  await $.fs.write(`${heim}${WURZEL}/nutzung/${alteId}.json`, JSON.stringify({ ...alt, auftrag: '', zugewiesen: [], geladen: [] }))
+  await $.fs.write(`${home}${ROOT}/usage/${oldId}.json`, JSON.stringify({ ...old, task: '', assigned: [], loaded: [] }))
 }
 
-export async function skillsLage($: EngineInterface) {
-  const heim = await $.env.get('HOME')
-  const jetzt = await $.clock.now()
-  const befehle = await $.command.list()
-  const skills = befehle
+export async function skillsStatus($: EngineInterface) {
+  const home = await $.env.get('HOME')
+  const now = await $.clock.now()
+  const commands = await $.command.list()
+  const skills = commands
     .filter(c => (c.source as string) !== 'builtin' && (c.source as string) !== 'mcp')
     .map(c => ({ name: c.name, description: c.description }))
-  const nutzungen = (await jsonDateien($, `${heim}${WURZEL}/nutzung`)) as Nutzung[]
-  const hinweise = (await jsonDateien($, `${heim}${WURZEL}/hinweise`)) as Hinweis[]
-  const aenderungen = (await jsonDateien($, `${heim}${WURZEL}/aenderungen`)) as Aenderung[]
-  return auswerten(skills, nutzungen, hinweise, jetzt, aenderungen)
+  const usages = (await jsonFiles($, `${home}${ROOT}/usage`)) as Usage[]
+  const notes = (await jsonFiles($, `${home}${ROOT}/notes`)) as Note[]
+  const changes = (await jsonFiles($, `${home}${ROOT}/changes`)) as Change[]
+  return evaluate(skills, usages, notes, now, changes)
 }
 
-// Baut den Befehl, mit dem der Nutzer Skills selbst ausblendet. `name-only` lässt sie nutzbar,
-// spart aber die Beschreibung im Kontext jeder Session. Die Mod ändert keine Einstellungen.
-export function ausblendenBefehl(namen: unknown) {
-  const liste = Array.isArray(namen) ? namen.map(String) : []
-  const gueltig = liste.filter(n => /^[\w:.-]+$/.test(n))
-  const abgelehnt = liste.filter(n => !gueltig.includes(n))
-  if (gueltig.length === 0) return { befehl: null, abgelehnt }
-  const eintraege = gueltig.map(n => `"${n}":"name-only"`).join(',')
-  const datei = '~/.claude/settings.json'
+// Builds the command the user runs to hide skills themselves. `name-only` keeps them usable
+// but saves their description in the context of every session. The mod changes no settings.
+export function hideCommand(names: unknown) {
+  const list = Array.isArray(names) ? names.map(String) : []
+  const valid = list.filter(n => /^[\w:.-]+$/.test(n))
+  const rejected = list.filter(n => !valid.includes(n))
+  if (valid.length === 0) return { command: null, rejected }
+  const entries = valid.map(n => `"${n}":"name-only"`).join(',')
+  const file = '~/.claude/settings.json'
   return {
-    befehl: `cp ${datei} ${datei}.vor-skill-aufraeumen && jq '.skillOverrides = ((.skillOverrides // {}) + {${eintraege}})' ${datei} > ${datei}.neu && mv ${datei}.neu ${datei}`,
-    abgelehnt,
+    command: `cp ${file} ${file}.before-skill-cleanup && jq '.skillOverrides = ((.skillOverrides // {}) + {${entries}})' ${file} > ${file}.new && mv ${file}.new ${file}`,
+    rejected,
   }
 }

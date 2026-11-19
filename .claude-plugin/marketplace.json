@@ -1,5 +1,5 @@
 {
-  "name": "dirigent",
-  "owner": { "name": "Dirigent contributors" },
-  "plugins": [{ "name": "dirigent", "source": "./" }]
+  "name": "maestro",
+  "owner": { "name": "fadenshine" },
+  "plugins": [{ "name": "maestro", "source": "./" }]
 }
